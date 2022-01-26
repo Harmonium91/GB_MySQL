@@ -10,14 +10,15 @@ from (
 	 ) as list;
 
 -- task_2
-select concat(firstname, ' ', lastname) Name, 
-	   timestampdiff(year, p.birthday, now()) Age,
-	   count(*) Total_message
-from users u 
-	join likes l on u.id = l.user_id 
-	join profiles p on u.id = p.user_id
-where timestampdiff(year, p.birthday, now()) < 10
-group by u.id;
+select sum(Total_likes) total_likes
+from (
+	select count(*) Total_likes
+	from users u 
+		join likes l on u.id = l.user_id 
+		join profiles p on u.id = p.user_id
+	where timestampdiff(year, p.birthday, now()) < 10
+	group by u.id
+	 ) as list;
 
 -- task_3
 select case(gender)
