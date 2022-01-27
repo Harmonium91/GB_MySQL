@@ -60,7 +60,7 @@ create table temp (
 );
 
 insert into temp (created_at)
-values ('2018-08-01'),
+values     ('2018-08-01'),
 	   ('2018-08-02'),
 	   ('2018-08-03'),
 	   ('2018-08-04'),
@@ -83,9 +83,9 @@ limit 5;
 
 delete from temp
 where created_at not in (
-						 select new_date 
-						 from var
-						);
+			 select new_date 
+			 from var
+			);
 
 drop temporary table var;
 
@@ -128,13 +128,13 @@ begin
 		declare h_out varchar(50);
 			
 		if(curtime() between '06:00:01' and '12:00:00') then
-			set h_out = 'Доброе утро!';
+			set h_out = 'Р”РѕР±СЂРѕРµ СѓС‚СЂРѕ!';
 		elseif(curtime() between '12:00:01' and '18:00:00') then
-			set h_out = 'Добрый день!';
+			set h_out = 'Р”РѕР±СЂС‹Р№ РґРµРЅСЊ!!';
 		elseif(curtime() between '18:00:01' and '23:59:59') then
-			set h_out = 'Добрый вечер!';
+			set h_out = 'Р”РѕР±СЂС‹Р№ РІРµС‡РµСЂ!!';
 		else
-			set h_out = 'Доброй ночи!';
+			set h_out = 'Р”РѕР±СЂРѕР№ РЅРѕС‡Рё!';
 		end if;
 		
 	return (h_out);
@@ -146,7 +146,7 @@ create trigger not_null_insert before insert on products
 for each row 
 	begin 
 		if new.name is null and new.description is null
-		then signal sqlstate '45000' set message_text = 'Значения имени и описания продукта не могут быть пустыми!'; 
+		then signal sqlstate '45000' set message_text = 'Р’РЅРёРјР°РЅРёРµ! РџРѕР»СЏ name Рё description РЅРµ РјРѕРіСѓС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹РјРё РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ!'; 
 		end if;
 end;
 
@@ -154,7 +154,7 @@ create trigger not_null_update before update on products
 for each row 
 	begin 
 		if new.name is null and new.description is null
-		then signal sqlstate '45000' set message_text = 'Значения имени и описания продукта не могут быть пустыми!'; 
+		then signal sqlstate '45000' set message_text = 'Р’РЅРёРјР°РЅРёРµ! РџРѕР»СЏ name Рё description РЅРµ РјРѕРіСѓС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹РјРё РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ!'; 
 		end if;
 end;
 
