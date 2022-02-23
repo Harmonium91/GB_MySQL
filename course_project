@@ -1,0 +1,636 @@
+#------- В данном блоке приведены DDL-команды -------#
+#-----------------------------------------------------
+#-----------------------------------------------------
+
+create database railway;
+
+use railway;
+
+drop table if exists trains;
+create table trains(
+id serial,
+stamp varchar(50),
+van int,
+registration_at datetime default now()
+); -- в таблице хранятся сведения о поездах
+
+drop table if exists crew;
+create table crew(
+id serial,
+type_crew varchar(200) 
+);  --  в таблице хранятся сведения о бригадах
+
+drop table if exists staff;
+create table staff(
+id serial,
+surname varchar(50) not null,
+name varchar(50) not null,
+patronymic varchar(50),
+birthday date not null,
+gender enum('male', 'female'),
+specialization enum('machinist', 'mechanic', 'conductor', 'chief'),
+phone bigint unsigned unique,
+license varchar(10) not null unique,
+crew_id bigint unsigned not null,
+
+foreign key (crew_id) references crew(id) 
+on update cascade on delete no action
+); -- в таблице хранятся сведения о сотрудниках железнодорожной бригады
+
+drop table if exists medical_exam;
+create table medical_exam(
+id serial,
+date_exam datetime,
+valid_until datetime,
+staff_id bigint unsigned not null,
+
+foreign key (staff_id) references staff(id) 
+on update cascade on delete no action
+); -- в таблице хранятся сведения о пройденных и действующих медицинских обследованиях у сотрудников
+
+drop table if exists passengers;
+create table passengers(
+id serial,
+surname varchar(50) not null,
+name varchar(50) not null,
+patronymic varchar(50),
+birthday date not null,
+gender enum('male', 'female'),
+phone bigint unsigned unique,
+email varchar(100) unique
+); -- в таблице хранятся сведения о пассажирах
+
+drop table if exists stations;
+create table stations(
+id serial,
+station_name varchar(40),
+code varchar(3)
+); -- в таблице хранятся сведения о станциях
+
+drop table if exists routes;
+create table routes(
+id serial,
+departure_station_id bigint unsigned not null,
+arrival_station_id bigint unsigned not null,
+distance int comment 'unit of measurement kilometers',
+price decimal(10,2),
+created_at datetime default now(),
+updated_at datetime on update current_timestamp,
+
+foreign key (departure_station_id) references stations(id) 
+on update cascade on delete no action,
+foreign key (arrival_station_id) references stations(id)
+on update cascade on delete no action
+); -- в таблице хранятся сведения о маршрутах и их стоимости
+
+drop table if exists `assignment`;
+create table `assignment`(
+id serial,
+train_id bigint unsigned not null,
+crew_id bigint unsigned not null,
+created_at datetime default now(),
+updated_at datetime on update current_timestamp,
+status enum('current', 'cancelled'),
+
+foreign key (train_id) references trains(id) 
+on update cascade on delete no action,
+foreign key (crew_id) references crew(id)
+on update cascade on delete no action
+); -- в таблице хранятся сведения о назначениях бригад на поезда
+
+drop table if exists schedule;
+create table schedule(
+id serial,
+train_id bigint unsigned not null,
+route_id bigint unsigned not null,
+departure_at datetime,
+arrival_at datetime,
+track_number char(1) not null,
+
+foreign key (train_id) references trains(id) 
+on update cascade on delete no action,
+foreign key (route_id) references routes(id)
+on update cascade on delete no action
+); -- в таблице хранится расписание поездов
+
+drop table if exists discounts;
+create table discounts(
+id serial,
+category varchar(50),
+amount float
+); -- в таблице хранятся сведения о льготах
+
+drop table if exists additional_services;
+create table additional_services(
+id serial,
+service_type varchar(50),
+cost decimal(10,2)
+); -- в таблице хранятся сведения о дополнительных услугах
+
+drop table if exists tickets;
+create table tickets(
+id serial,
+schedule_id bigint unsigned not null,
+passenger_id bigint unsigned not null,
+discount_id bigint unsigned not null,
+additional_service_id bigint unsigned not null,
+created_at datetime default now(),
+total_cost decimal(10,2),
+
+foreign key (schedule_id) references schedule(id) 
+on update cascade on delete no action,
+foreign key (passenger_id) references passengers(id)
+on update cascade on delete no action,
+foreign key (discount_id) references discounts(id) 
+on update cascade on delete no action,
+foreign key (additional_service_id) references additional_services(id)
+on update cascade on delete no action
+); -- в таблице хранятся сведения о приобретенных билетах
+
+
+alter table staff
+add index staff_surname_name_birthday_patronymic_idx (surname, name, patronymic, birthday);
+
+alter table passengers
+add index passengers_surname_name_birthday_patronymic_idx (surname, name, patronymic, birthday);
+
+alter table stations
+add index stations_name_idx (station_name);
+
+alter table routes
+add index routes_price_idx (price);
+
+
+#----------- В данном блоке приведены запросы -----------
+#--------------------------------------------------------
+#--------------------------------------------------------
+
+-- 1.Возвращает сведения о пассажирах
+select concat(surname, ' ', name, ' ', patronymic) as FIO, 
+	   gender, birthday, email 
+from passengers; 
+
+-- 2.Возвращает список машинистов из общего числа персонала
+select surname, name, birthday, license
+from staff 
+where specialization = 'machinist'; 
+
+-- 3.Возвращает данные о медицинском обследовании выбранного сотрудника
+select surname, name, birthday,
+	   (select date_exam from medical_exam where staff_id = 1),
+	   (select valid_until from medical_exam where staff_id = 1)
+from staff
+where id = 1;
+
+-- 4.Возвращает сведения о приобретенных пассажирами билетах
+select concat(surname, ' ', name) as FIO, 
+	   count(t.id) as total, sum(t.total_cost) as `sum`
+from passengers p join tickets t
+on p.id = t.passenger_id
+group by surname; 
+
+-- 5.Возвращает среднюю стоимость билета в указанный промежуток времени
+select avg(total_cost) as `sum`
+from tickets
+where created_at between '2000-01-01' and '2022-01-01';
+
+-- 6.Возвращает билеты, стоимость которых меньше минимальной стоимости маршрутов
+select id, total_cost
+from tickets 
+where total_cost < (
+					select min(price)
+					from routes
+				   );
+				  
+-- 7.Возвращает ТОП 3 наиболее популярных дополнительных услуг
+select a.id, a.service_type, count(t.id) as total 
+from additional_services a
+	join tickets t on a.id = t.additional_service_id
+group by a.service_type
+order by total desc 
+limit 3;
+
+-- 8.Возвращает список персонала с просроченным медицинским обследованием
+select concat(surname, ' ', name, ' ', patronymic) as FIO, 
+	   birthday, valid_until
+from staff 
+	join medical_exam on staff.id = staff_id 
+where valid_until < now();
+
+-- 9.Возвращает список наиболее задействованных сотрудников
+select concat(surname, ' ', name) as FIO, count(a.id) as total_assignment
+from staff s 
+	join crew c on s.crew_id = c.id 
+	join `assignment` a on c.id = a.crew_id
+group by FIO 
+having total_assignment = (
+		select max(total)
+		from(
+			 select count(id) as total
+			 from `assignment`
+			 group by crew_id
+			 ) as list
+		 					)
+order by total_assignment desc;
+
+-- 10.Возвращает список несовершеннолетних пассажиров
+select concat(surname, ' ', name) as FIO, 
+	   timestampdiff(year, birthday, now()) as age
+from passengers
+where timestampdiff(year, birthday, now()) < 18;
+
+
+-- 11.Возвращает наиболее востребованный маршрут
+select r.id, r.price, s1.station_name as departure, s2.station_name as arrival, count(t.id) as total_tickets
+from routes r
+	join stations s1 on s1.id=r.departure_station_id
+	join stations s2 on s2.id=r.arrival_station_id
+	join schedule sc on r.id = sc.route_id 
+	join tickets t on sc.id = t.schedule_id
+group by t.schedule_id having total_tickets =
+					(
+					select max(total)
+					from (
+						  select count(id) as total 
+						  from tickets
+						  group by schedule_id) as list 
+					);
+
+				
+#----------- В данном блоке приведены представления, триггеры, ХП и функции -----------
+#--------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------
+
+-- Представление отображает расписание в удобном, расширенном варианте
+create or replace view full_shedule (train_id, departure_station, arrival_station, 
+						  departure_at, arrival_at, track_number) as
+	select train_id, st1.station_name, st2.station_name, 
+		   departure_at, arrival_at, track_number
+	from schedule s
+		join routes r on s.route_id = r.id
+		join stations st1 on r.departure_station_id = st1.id
+		join stations st2 on r.arrival_station_id = st2.id;
+		
+-- Представление отображает перечень услуг и льгот, которыми пользуются пассажиры
+create or replace view passengers_discounts_and_services (full_name, age, service_type, category) as
+	select concat(surname, ' ', name, ' ', patronymic),
+		   timestampdiff(year, birthday, now()), service_type, category
+	from passengers 
+		join tickets on passengers.id = passenger_id
+		join additional_services on tickets.additional_service_id = additional_services.id
+		join discounts on tickets.discount_id = discounts.id;
+
+-- Данная хранимая процедура расчитывает стоимость 
+-- билета с учетом тарифа, скидок и дополнительных услуг 
+drop procedure if exists calculation_total_cost;
+create procedure calculation_total_cost ()
+begin
+	set @start_value = 1; 
+	set @count_tickets = (select count(id) from tickets);
+		while @start_value < @count_tickets do
+		set @cost = (select r.price + r.price * d.amount + ads.cost
+			   	     from routes r
+				  	   join schedule s on r.id = s.route_id 
+				  	   join tickets t on s.id = t.schedule_id
+				  	   join additional_services ads on ads.id = t.additional_service_id
+				  	   join discounts d on d.id = t.discount_id
+			   	     where t.id = @start_value);
+		update tickets
+		set total_cost = @cost
+		where id = @start_value;
+		set @start_value = @start_value + 1;
+		end while;
+end;
+
+call calculation_total_cost()				
+
+-- Данная функция аналогична предыдущей хранимой процедурой, но 
+-- обновляет стоимость по заданному id билета
+
+drop function if exists calc_total_cost;
+create function calc_total_cost (ticket_id int)
+returns int deterministic
+begin 
+	set @cost = (select truncate(r.price + r.price * d.amount + ads.cost, 2)
+			     from routes r
+				   join schedule s on r.id = s.route_id 
+				   join tickets t on s.id = t.schedule_id
+				   join additional_services ads on ads.id = t.additional_service_id
+				   join discounts d on d.id = t.discount_id
+			     where t.id = ticket_id);
+	update tickets
+	set total_cost = @cost
+	where id = ticket_id;
+return(@cost);
+end;
+
+select calc_total_cost(1);				
+				
+-- Данные триггеры осуществляют проверку возраста персонала при добавлении сотрудника
+
+create trigger age_verification_insert before insert on staff
+for each row 
+	begin 
+		if timestampdiff(year, new.birthday, now()) < 18 
+		then signal sqlstate '45000' set message_text = 'Сотрудник не может быть младше 18 лет'; 
+		end if;
+end;
+
+create trigger age_verification_update before update on staff
+for each row 
+	begin 
+		if timestampdiff(year, new.birthday, now()) < 18 
+		then signal sqlstate '45000' set message_text = 'Сотрудник не может быть младше 18 лет'; 
+		end if;
+end;
+
+
+#---------В данном блоке представлено наполнение таблиц------------#
+#------------------------------------------------------------------#
+#------------------------------------------------------------------#
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('1', 'Swift, Windler and Kertzmann', 10, '2015-11-12 16:28:04');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('2', 'Glover-Hand', 8, '1989-11-23 10:05:08');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('3', 'Simonis-Stokes', 2, '1976-12-15 14:40:15');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('4', 'Kertzmann LLC', 11, '2006-11-29 16:39:45');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('5', 'Gibson-Hamill', 8, '2021-01-20 08:21:11');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('6', 'Herman, Kuvalis and Armstrong', 15, '1995-10-17 16:21:42');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('7', 'Terry and Sons', 7, '2000-05-22 23:07:43');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('8', 'Rowe Ltd', 22, '2020-08-13 02:59:08');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('9', 'Monahan, Mitchell and Runolfsson', 6, '2009-05-12 21:35:55');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('10', 'Hettinger Group', 17, '2018-05-07 18:57:39');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('11', 'Morar Group', 19, '1988-05-13 10:48:21');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('12', 'Windler, Conroy and Franecki', 4, '1976-10-11 18:26:45');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('13', 'Dibbert and Sons', 18, '2005-01-28 21:26:13');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('14', 'Schneider, Stanton and King', 9, '2011-04-19 02:58:33');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('15', 'Legros-Koch', 4, '2018-06-05 23:50:03');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('16', 'Nienow Inc', 9, '1982-06-11 14:39:39');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('17', 'Mohr Inc', 5, '1985-02-09 19:37:50');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('18', 'Auer-Wilkinson', 3, '1985-09-23 19:04:59');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('19', 'Gleichner, Von and Glover', 7, '1989-08-28 06:52:48');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('20', 'Kessler-Bogisich', 8, '1989-08-23 14:20:12');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('21', 'Osinski, Mohr and Harvey', 2, '2018-03-16 23:44:11');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('22', 'Blick, Wolff and Crist', 2, '2016-09-14 22:41:30');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('23', 'Torp and Sons', 4, '2008-05-19 10:50:11');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('24', 'Homenick, Fadel and Goyette', 1, '2012-06-20 00:21:32');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('25', 'Haag-Schroeder', 20, '1975-08-17 00:21:52');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('26', 'Brown, Rodriguez and Sipes', 10, '2006-04-18 05:07:17');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('27', 'Sporer Group', 8, '1998-06-17 13:17:35');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('28', 'Roob Inc', 20, '1994-10-19 12:19:33');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('29', 'Grimes-Wisoky', 23, '1982-02-18 06:06:11');
+INSERT INTO `trains` (`id`, `stamp`, `van`, `registration_at`) VALUES ('30', 'Howell PLC', 22, '1971-01-08 08:49:38');
+
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('1', 'sunt', '15.10');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('2', 'necessitatibus', '105.15');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('3', 'reiciendis', '29.12');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('4', 'repellendus', '38.20');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('5', 'dolorum', '41.23');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('6', 'in', '50.25');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('7', 'dicta', '100.7');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('8', 'magnam', '28.35');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('9', 'accusantium', '52.28');
+INSERT INTO `additional_services` (`id`, `service_type`, `cost`) VALUES ('10', 'sint', '101.85');
+
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('1', 'aliquid', '0.7');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('2', 'facere', '0.25');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('3', 'explicabo', '0.28');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('4', 'adipisci', '0.3');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('5', 'rerum', '0.35');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('6', 'omnis', '0.28');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('7', 'id', '0.51');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('8', 'autem', '0.34');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('9', 'deleniti', '0.5');
+INSERT INTO `discounts` (`id`, `category`, `amount`) VALUES ('10', 'dolorem', '0.85');
+
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('1', 'fdsjgkljsdhkjgdsnjkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('2', 'rwetewtwetewte');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('3', 'ftwetwegfsdfdsds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('4', 'fdhdfhdfhdfkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('5', 'fdsjjghfjgfhgsfgdfnjkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('6', 'fdhgfhgfdjgfdjkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('7', 'fdsjgknbhgnghmghjkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('8', 'fdghdfsgdsfgsds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('9', 'fderteryrturtnjkgds');
+INSERT INTO `crew` (`id`, `type_crew`) VALUES ('10', 'fdbncvnvxnvcds');
+
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('1', 'Sandy', 'Grant', 'Wolff', '1991-06-11', 'female', 'machinist', '409282', '36376705-1', '1');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('2', 'Omari', 'Hermann', 'Pacocha', '1977-07-23', 'female', 'machinist', '0', 'ce698b80-7', '2');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('3', 'Juwan', 'Strosin', 'Hagenes', '2018-09-04', 'male', 'machinist', '7151317', '903b1a91-2', '3');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('4', 'Reese', 'Schmitt', 'Greenfelder', '2009-04-15', 'male', 'machinist', '728427618', 'ec8c404d-3', '4');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('5', 'Michelle', 'Durgan', 'Koch', '1975-03-25', 'female', 'machinist', '307', '8670f4d5-8', '5');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('6', 'Edyth', 'Hoppe', 'Schulist', '2007-08-06', 'male', 'chief', '93842789', 'ec581bbd-2', '6');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('7', 'Katlynn', 'Streich', 'Rau', '2015-12-11', 'male', 'chief', '9111', 'cf8da07c-1', '7');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('8', 'Rosemarie', 'Jacobi', 'Wolff', '1971-06-25', 'male', 'chief', '567', '36ad0172-0', '8');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('9', 'Napoleon', 'Wilderman', 'Nikolaus', '2004-03-31', 'male', 'mechanic', '189', '497c6456-5', '9');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('10', 'Garry', 'Johnson', 'Mraz', '1973-07-21', 'male', 'mechanic', '822781901', '5b3f1c11-9', '10');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('11', 'Burnice', 'Crist', 'Heller', '1999-08-18', 'male', 'mechanic', '540', '5b6d1944-4', '1');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('12', 'Marjory', 'Wisoky', 'Torphy', '1996-06-26', 'male', 'mechanic', '543', '4e0a2bf7-e', '2');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('13', 'Meda', 'Nikolaus', 'Kovacek', '2000-02-22', 'male', 'mechanic', '728', 'e1a26ff1-e', '3');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('14', 'Jaren', 'Sawayn', 'Dickinson', '1979-04-12', 'female', 'conductor', '4', '8bc28eb3-6', '4');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('15', 'Verdie', 'Dibbert', 'Crist', '1994-09-25', 'female', 'conductor', '1747863', '7eac87fc-7', '5');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('16', 'Gavin', 'Fisher', 'Pouros', '2001-02-06', 'female', 'conductor', '82091', 'e58e7c74-3', '6');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('17', 'Katelynn', 'Witting', 'Monahan', '2009-03-11', 'male', 'conductor', '202', 'e214df28-0', '6');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('18', 'Kirstin', 'Wehner', 'Tremblay', '2003-03-06', 'male', 'conductor', '44079683', 'ec6be811-e', '7');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('19', 'Dedric', 'Jacobs', 'Anderson', '2016-12-06', 'male', 'conductor', '8', '55f9a0fe-a', '8');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('20', 'Dakota', 'Jerde', 'Lueilwitz', '1986-02-02', 'female', 'conductor', '822', '74b6499b-6', '9');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('21', 'Preston', 'Upton', 'Larkin', '2016-11-04', 'female', 'conductor', '1897', '626dfe24-b', '10');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('22', 'Serenity', 'Tremblay', 'Hane', '1974-02-17', 'female', 'conductor', '11', 'd99850bb-9', '10');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('23', 'Hilda', 'Dare', 'Lockman', '2013-11-26', 'female', 'conductor', '38917757', 'b2fd5b21-e', '5');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('24', 'Soledad', 'Kling', 'Mitchell', '1982-12-18', 'male', 'conductor', '454', '033265e2-2', '4');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('25', 'Sylvester', 'Fadel', 'Padberg', '1970-05-15', 'male', 'conductor', '648', 'bfc4488a-d', '3');
+INSERT INTO `staff` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `specialization`, `phone`, `license`, `crew_id`) VALUES ('26', 'Zaria', 'Harris', 'Connell', '1989-06-08', 'female', 'conductor', '922013', 'eabdbddf-a', '2');
+
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('1', '1977-09-07 20:06:15', '2021-06-03 22:31:22', '1');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('2', '1997-11-22 17:46:12', '2011-05-09 05:57:36', '2');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('3', '2012-12-04 00:44:47', '1982-09-07 20:44:58', '3');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('4', '1981-10-22 08:48:51', '2003-10-31 08:31:19', '4');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('5', '1983-08-10 19:23:37', '2012-04-17 06:26:44', '5');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('6', '2021-08-08 10:15:57', '1976-12-04 23:16:06', '6');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('7', '2020-12-06 16:45:50', '1988-01-02 13:03:42', '7');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('8', '2003-01-01 22:18:47', '2016-03-26 16:56:22', '8');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('9', '1989-05-16 13:45:00', '1988-09-12 12:19:14', '9');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('10', '2015-08-31 13:32:26', '1994-09-09 16:05:35', '10');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('11', '2002-10-13 01:55:19', '1996-12-05 05:53:07', '11');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('12', '2013-09-17 09:31:50', '1992-05-14 03:58:36', '12');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('13', '2000-01-18 22:52:05', '1986-09-24 00:39:37', '13');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('14', '2009-07-27 07:54:06', '2008-03-12 19:37:29', '14');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('15', '1995-12-30 11:41:29', '1971-03-10 12:14:12', '15');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('16', '2008-06-15 17:46:05', '1974-09-04 02:05:21', '16');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('17', '1971-08-17 03:48:27', '2013-11-14 18:50:19', '17');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('18', '2009-11-08 11:03:10', '2010-04-16 04:48:08', '18');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('19', '2012-05-11 00:41:36', '1980-08-25 05:44:18', '19');
+INSERT INTO `medical_exam` (`id`, `date_exam`, `valid_until`, `staff_id`) VALUES ('20', '1987-08-14 14:30:34', '2004-05-30 15:11:11', '20');
+
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('1', 'Abigale', 'Frami', 'Gaylord', '2001-04-04', 'female', '460', 'keefe.alexandra@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('2', 'Eileen', 'Will', 'Jacobs', '1981-12-06', 'female', '442', 'altenwerth.dorian@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('3', 'Junior', 'Heidenreich', 'Reilly', '2019-07-01', 'female', '0', 'nadia74@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('4', 'Michel', 'Heidenreich', 'Gerhold', '1996-06-19', 'male', '73', 'jerel39@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('5', 'Antone', 'Schmitt', 'Koepp', '1980-11-10', 'male', '39', 'destany47@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('6', 'Giovanna', 'Keebler', 'Murazik', '2007-04-04', 'male', '2262639182', 'eileen.donnelly@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('7', 'Shaylee', 'Schaden', 'Fadel', '1989-03-14', 'female', '310891', 'arau@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('8', 'Rebecca', 'Bergnaum', 'Cremin', '1995-08-14', 'female', '211112', 'courtney.prosacco@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('9', 'Wilfredo', 'Ernser', 'Gerlach', '2004-04-14', 'female', '15', 'tillman.lina@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('10', 'Maud', 'Eichmann', 'Waelchi', '2021-05-19', 'female', '1', 'waelchi.hermina@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('11', 'Theresia', 'Schroeder', 'Rogahn', '2005-08-03', 'male', '430161', 'mante.marcelle@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('12', 'Colten', 'Haley', 'Reichel', '1973-05-01', 'female', '369', 'amina.rowe@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('13', 'Olin', 'Hintz', 'Eichmann', '1972-06-07', 'male', '9437374261', 'rolfson.kaela@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('14', 'Lela', 'Murphy', 'Sporer', '1993-11-28', 'female', '266', 'langworth.kaylie@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('15', 'Clarissa', 'Labadie', 'Hauck', '1994-12-14', 'male', '904', 'arnoldo66@example.net');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('16', 'Norwood', 'Champlin', 'Luettgen', '2008-12-26', 'female', '265608', 'jaunita89@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('17', 'Saul', 'Hackett', 'Rempel', '1985-07-24', 'male', '416', 'kautzer.verla@example.org');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('18', 'Colton', 'Goldner', 'Schulist', '1977-04-07', 'male', '578343', 'ronaldo.hegmann@example.com');
+INSERT INTO `passengers` (`id`, `surname`, `name`, `patronymic`, `birthday`, `gender`, `phone`, `email`) VALUES ('19', 'Gavin', 'Jacobs', 'Kassulke', '1990-01-02', 'male', '762101', 'luz90@example.com');
+
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('1', 'Nebraska', 'ajw');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('2', 'Tennessee', 'ivs');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('3', 'Vermont', 'bcy');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('4', 'Michigan', 'ufy');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('5', 'Illinois', 'pbo');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('6', 'Louisiana', 'vhq');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('7', 'Kansas', 'ksa');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('8', 'Michigan', 'deg');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('9', 'Oregon', 'qyd');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('10', 'Colorado', 'gos');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('11', 'Wisconsin', 'ymy');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('12', 'Idaho', 'cpl');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('13', 'Missouri', 'zod');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('14', 'NorthCarolina', 'deq');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('15', 'Georgia', 'uma');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('16', 'Colorado', 'fyy');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('17', 'Utah', 'kzk');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('18', 'NewJersey', 'osd');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('19', 'Texas', 'orn');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('20', 'Michigan', 'lke');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('21', 'Ohio', 'msl');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('22', 'Maryland', 'paf');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('23', 'Louisiana', 'kvl');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('24', 'Tennessee', 'dkc');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('25', 'Arizona', 'jxv');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('26', 'Michigan', 'igs');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('27', 'NorthDakota', 'jtc');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('28', 'Massachusetts', 'axm');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('29', 'Ohio', 'qap');
+INSERT INTO `stations` (`id`, `station_name`, `code`) VALUES ('30', 'WestVirginia', 'dls');
+
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('1', '1', '1', 87, '99999.99', '1977-09-07 20:06:15', '2021-06-03 22:31:22');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('2', '2', '2', 1748000, '738.99', '1997-11-22 17:46:12', '2011-05-09 05:57:36');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('3', '3', '3', 1, '66867.15', '2012-12-04 00:44:47', '1982-09-07 20:44:58');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('4', '4', '4', 0, '99999.99', '1981-10-22 08:48:51', '2003-10-31 08:31:19');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('5', '5', '5', 9190, '54855.08', '1983-08-10 19:23:37', '2012-04-17 06:26:44');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('6', '6', '6', 6436, '99999.99', '2021-08-08 10:15:57', '1976-12-04 23:16:06');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('7', '7', '7', 9291514, '99999.99', '2020-12-06 16:45:50', '1988-01-02 13:03:42');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('8', '8', '8', 79769086, '99999.99', '2003-01-01 22:18:47', '2016-03-26 16:56:22');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('9', '9', '9', 76205396, '43.28', '1989-05-16 13:45:00', '1988-09-12 12:19:14');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('10', '10', '10', 539304, '99999.99', '2015-08-31 13:32:26', '1994-09-09 16:05:35');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('11', '11', '11', 259585266, '99999.99', '2002-10-13 01:55:19', '1996-12-05 05:53:07');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('12', '12', '12', 15049307, '11.00', '2013-09-17 09:31:50', '1992-05-14 03:58:36');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('13', '13', '13', 1881, '21.00', '2000-01-18 22:52:05', '1986-09-24 00:39:37');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('14', '14', '14', 4, '2.03', '2009-07-27 07:54:06', '2008-03-12 19:37:29');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('15', '15', '15', 17, '99999.99', '1995-12-30 11:41:29', '1971-03-10 12:14:12');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('16', '16', '16', 309, '99999.99', '2008-06-15 17:46:05', '1974-09-04 02:05:21');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('17', '17', '17', 575073, '12.80', '1971-08-17 03:48:27', '2013-11-14 18:50:19');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('18', '18', '18', 819, '99999.99', '2009-11-08 11:03:10', '2010-04-16 04:48:08');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('19', '19', '19', 0, '3.92', '2012-05-11 00:41:36', '1980-08-25 05:44:18');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('20', '20', '20', 4071, '99999.99', '1987-08-14 14:30:34', '2004-05-30 15:11:11');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('21', '21', '21', 310464990, '2.00', '2010-01-21 16:05:56', '2005-05-05 07:15:40');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('22', '22', '22', 87532712, '165.94', '2011-07-28 06:50:26', '2020-10-28 23:09:29');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('23', '23', '23', 4938, '19.98', '1981-07-31 00:12:48', '1971-01-12 08:28:57');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('24', '24', '24', 86, '8.00', '1996-07-28 04:38:14', '1989-12-07 02:58:43');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('25', '25', '25', 227, '365.00', '2012-11-10 05:24:47', '2014-10-26 01:33:39');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('26', '26', '26', 871082984, '99999.99', '2019-12-20 15:36:52', '1984-04-23 05:01:49');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('27', '27', '27', 630, '10857.59', '1983-09-27 17:51:42', '1990-12-09 21:46:39');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('28', '28', '28', 92538835, '33.00', '2014-05-06 20:57:49', '1977-05-04 10:29:05');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('29', '29', '29', 69987715, '99999.99', '1972-09-06 18:42:53', '2011-03-08 14:14:06');
+INSERT INTO `routes` (`id`, `departure_station_id`, `arrival_station_id`, `distance`, `price`, `created_at`, `updated_at`) VALUES ('30', '30', '30', 73635, '459.15', '1977-07-14 01:45:27', '1997-07-10 21:26:24');
+
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('1', '1', '1', '2014-09-20 17:27:04', '1975-12-20 20:52:42', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('2', '2', '2', '1989-11-17 00:46:14', '2000-11-08 01:58:56', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('3', '3', '3', '1982-10-27 12:15:26', '2000-06-13 05:55:18', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('4', '4', '4', '1996-05-24 09:45:30', '1994-12-07 20:29:07', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('5', '5', '5', '1983-10-01 02:11:35', '2017-02-08 04:50:29', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('6', '6', '6', '1996-01-27 03:11:31', '2012-10-03 21:27:32', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('7', '7', '7', '1996-04-17 00:59:25', '1983-07-07 21:00:55', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('8', '8', '8', '1982-12-02 07:10:03', '2006-12-22 05:52:18', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('9', '9', '9', '2001-12-07 01:00:00', '2005-04-26 01:17:27', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('10', '10', '10', '2003-08-12 11:18:47', '1986-10-29 17:09:59', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('11', '11', '1', '1979-07-28 12:26:30', '2000-03-13 21:00:03', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('12', '12', '2', '2004-04-08 23:02:07', '1986-07-24 06:08:50', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('13', '13', '3', '1976-10-12 16:41:49', '1979-07-03 10:43:05', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('14', '14', '4', '1972-09-29 15:37:31', '2009-11-23 17:56:09', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('15', '15', '5', '1990-10-30 05:38:59', '2015-01-25 09:03:44', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('16', '16', '6', '2001-02-03 04:28:24', '1992-02-28 00:36:25', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('17', '17', '7', '2000-03-24 14:07:17', '1978-07-16 07:47:41', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('18', '18', '8', '1975-04-18 19:39:36', '2005-09-30 18:19:22', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('19', '19', '9', '2017-06-28 01:14:17', '1984-07-28 06:47:57', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('20', '20', '10', '1977-04-22 17:00:50', '1992-01-19 03:18:05', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('21', '21', '1', '2017-09-04 23:41:05', '1981-07-03 01:09:01', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('22', '22', '2', '2020-03-01 04:16:35', '2010-12-02 20:40:05', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('23', '23', '3', '1976-10-29 00:55:46', '2017-02-04 17:58:05', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('24', '24', '4', '1975-08-04 07:49:13', '2004-04-06 06:30:01', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('25', '25', '5', '2014-04-16 03:38:31', '1975-07-17 05:48:38', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('26', '26', '6', '2004-09-09 05:30:30', '2003-02-20 20:51:49', 'cancelled');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('27', '27', '7', '2013-10-10 21:34:41', '1975-05-27 15:59:18', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('28', '28', '8', '1987-01-26 13:41:03', '1992-12-08 09:38:20', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('29', '29', '9', '2006-04-11 19:55:29', '2000-08-28 09:50:00', 'current');
+INSERT INTO `assignment` (`id`, `train_id`, `crew_id`, `created_at`, `updated_at`, `status`) VALUES ('30', '30', '10', '1974-08-10 10:19:08', '1982-05-07 16:39:17', 'current');
+
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('1', '1', '1', '2003-12-15 16:09:36', '1987-08-28 12:26:06', '4');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('2', '2', '2', '2019-06-20 18:10:12', '1972-01-11 04:24:36', '9');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('3', '3', '3', '2003-10-04 00:01:10', '1977-02-15 03:19:02', '9');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('4', '4', '4', '2021-08-24 10:12:53', '2015-11-12 18:14:50', '2');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('5', '5', '5', '1980-01-29 07:47:32', '2015-11-15 11:50:03', '7');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('6', '6', '6', '1986-08-16 23:50:03', '1986-03-15 18:59:43', '9');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('7', '7', '7', '2004-11-29 07:31:52', '1988-03-23 15:28:52', '5');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('8', '8', '8', '1973-04-25 21:59:06', '2004-11-05 08:27:55', '9');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('9', '9', '9', '2007-09-17 18:55:09', '1990-11-05 11:05:19', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('10', '10', '10', '2016-10-25 22:06:43', '1996-10-09 00:29:57', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('11', '11', '11', '2001-03-23 14:53:20', '2007-05-14 03:07:07', '7');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('12', '12', '12', '2003-10-24 05:51:45', '1993-03-11 14:17:59', '8');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('13', '13', '13', '2021-05-28 07:48:09', '1989-09-12 07:55:08', '7');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('14', '14', '14', '2014-09-05 10:44:54', '1981-06-14 06:27:32', '8');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('15', '15', '15', '2021-09-21 21:07:19', '2002-11-17 05:57:23', '1');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('16', '16', '16', '2001-06-19 09:33:20', '1989-11-20 17:00:41', '1');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('17', '17', '17', '2002-02-24 05:27:54', '1988-12-07 21:01:33', '7');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('18', '18', '18', '2020-10-05 21:36:54', '2007-02-13 13:47:00', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('19', '19', '19', '2006-02-28 13:54:31', '1984-06-17 22:08:40', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('20', '20', '20', '1987-10-29 16:19:16', '2014-04-23 13:39:50', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('21', '21', '21', '1982-03-19 01:03:46', '2016-08-18 02:44:17', '6');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('22', '22', '22', '1970-12-17 01:56:07', '1985-08-13 09:42:53', '4');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('23', '23', '23', '1996-02-25 02:59:18', '2006-10-09 07:34:03', '3');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('24', '24', '24', '1974-12-29 00:43:02', '1980-10-21 02:45:04', '1');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('25', '25', '25', '1999-09-27 21:53:42', '2006-07-31 06:13:23', '1');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('26', '26', '26', '1970-08-28 09:16:21', '2013-04-10 02:53:04', '8');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('27', '27', '27', '2000-05-07 03:53:34', '2015-09-01 05:51:57', '8');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('28', '28', '28', '1975-06-11 23:53:55', '1994-11-23 09:46:45', '4');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('29', '29', '29', '2009-02-03 17:53:58', '1994-03-11 04:14:57', '9');
+INSERT INTO `schedule` (`id`, `train_id`, `route_id`, `departure_at`, `arrival_at`, `track_number`) VALUES ('30', '30', '30', '1973-01-07 12:54:07', '1996-04-03 13:21:49', '6');
+
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('1', '1', '1', '1', '1', '1975-08-01 15:29:28', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('2', '2', '2', '2', '2', '1971-09-09 18:28:00', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('3', '3', '3', '3', '3', '2006-05-09 11:37:42', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('4', '4', '4', '4', '4', '2019-12-20 09:42:53', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('5', '5', '5', '5', '5', '2001-03-08 06:44:13', '0.00');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('6', '6', '6', '6', '6', '1994-08-03 03:36:09', '0.00');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('7', '7', '7', '7', '7', '2021-05-20 04:18:28', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('8', '8', '8', '8', '8', '1996-03-04 05:30:01', '70.97');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('9', '9', '9', '9', '9', '1993-06-07 03:36:29', '0.00');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('10', '10', '10', '10', '10', '1970-05-09 20:02:25', '5.73');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('11', '11', '11', '1', '1', '1997-12-17 10:31:47', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('12', '12', '12', '2', '2', '2000-09-27 20:21:20', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('13', '13', '13', '3', '3', '1974-06-13 16:06:54', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('14', '14', '14', '4', '4', '2020-06-24 14:31:37', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('15', '15', '15', '5', '5', '1991-12-09 09:55:51', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('16', '16', '16', '6', '6', '1971-03-20 00:06:19', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('17', '17', '17', '7', '7', '1973-08-05 23:08:29', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('18', '18', '18', '8', '8', '1978-05-25 07:04:44', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('19', '19', '19', '9', '9', '2021-03-28 01:57:04', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('20', '20', '3', '10', '10', '1997-05-27 01:35:17', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('21', '21', '3', '1', '1', '2014-02-27 01:07:57', '763.50');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('22', '22', '3', '2', '2', '2014-07-06 02:15:58', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('23', '23', '3', '3', '3', '2003-04-20 20:13:27', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('24', '24', '3', '4', '4', '2002-06-11 15:21:44', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('25', '25', '3', '5', '5', '2012-07-06 15:16:18', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('26', '26', '8', '6', '6', '1989-12-31 03:04:14', '0.93');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('27', '27', '4', '7', '7', '2009-08-30 14:34:43', '999.99');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('28', '28', '4', '8', '8', '1975-12-06 05:05:22', '323.90');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('29', '29', '3', '9', '9', '1976-12-19 03:19:23', '0.00');
+INSERT INTO `tickets` (`id`, `schedule_id`, `passenger_id`, `discount_id`, `additional_service_id`, `created_at`, `total_cost`) VALUES ('30', '30', '5', '10', '10', '2012-06-04 19:02:13', '999.99');
